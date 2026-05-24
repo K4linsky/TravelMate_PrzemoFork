@@ -1,9 +1,9 @@
 {
-  "last_updated": "2025-06-01",
+  "last_updated": "2026-05-24",
   "models": [
     {
       "provider": "Anthropic",
-      "model": "Claude 3.5 Sonnet",
+      "model": "Claude Sonnet 4.6",
       "model_id": "claude-3-5-sonnet",
       "input_price_per_million_usd": 3.00,
       "output_price_per_million_usd": 15.00,
@@ -11,10 +11,10 @@
     },
     {
       "provider": "Anthropic",
-      "model": "Claude Haiku",
+      "model": "Claude Haiku 4.5",
       "model_id": "claude-haiku",
-      "input_price_per_million_usd": 0.25,
-      "output_price_per_million_usd": 1.25,
+      "input_price_per_million_usd": 1.00,
+      "output_price_per_million_usd": 5.00,
       "color": "#F59E0B"
     },
     {
@@ -37,16 +37,16 @@
       "provider": "Google",
       "model": "Gemini 2.5 Flash",
       "model_id": "gemini-2.5-flash",
-      "input_price_per_million_usd": 0.075,
-      "output_price_per_million_usd": 0.30,
+      "input_price_per_million_usd": 0.30,
+      "output_price_per_million_usd": 2.50,
       "color": "#3B82F6"
     },
     {
       "provider": "Google",
-      "model": "Gemini 1.5 Pro",
-      "model_id": "gemini-1.5-pro",
+      "model": "Gemini 2.5 Pro",
+      "model_id": "gemini-2.5-pro",
       "input_price_per_million_usd": 1.25,
-      "output_price_per_million_usd": 5.00,
+      "output_price_per_million_usd": 10.00,
       "color": "#60A5FA"
     },
     {
