@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import json
 from typing import Any
 
@@ -74,6 +76,7 @@ def transport_agent(state: PlannerState) -> dict[str, Any]:
     }
 
     try:
+        _t0 = time.perf_counter()
         response = llm.invoke(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
@@ -81,7 +84,8 @@ def transport_agent(state: PlannerState) -> dict[str, Any]:
                 HumanMessage(content=json.dumps(payload, ensure_ascii=False, indent=2)),
             ]
         )
-        get_tracker().record("transport_agent", response)
+        _t1 = time.perf_counter()
+        get_tracker().record("transport_agent", response, elapsed_seconds=_t1 - _t0)
         transport_report = message_to_text(response)
     except Exception as exc:
         LOGGER.warning("Krok 2/6: błąd transport_agent (%s). Używam fallbacku.", exc)

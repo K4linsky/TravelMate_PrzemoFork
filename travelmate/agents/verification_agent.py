@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import json
 from typing import Any
 
@@ -100,6 +102,7 @@ def verification_agent(state: PlannerState) -> dict[str, Any]:
     )
 
     try:
+        _t0 = time.perf_counter()
         llm_response = llm.invoke(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
@@ -107,7 +110,8 @@ def verification_agent(state: PlannerState) -> dict[str, Any]:
                 HumanMessage(content=json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
             ]
         )
-        get_tracker().record("verification_agent", llm_response)
+        _t1 = time.perf_counter()
+        get_tracker().record("verification_agent", llm_response, elapsed_seconds=_t1 - _t0)
         verification_markdown = message_to_text(llm_response)
         response = parse_verification_markdown(verification_markdown)
     except BadRequestError as exc:

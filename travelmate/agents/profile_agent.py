@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -28,6 +30,7 @@ def profile_agent(state: PlannerState) -> dict[str, Any]:
     )
     payload = request_to_json_payload(request)
 
+    _t0 = time.perf_counter()
     response = llm.invoke(
         [
             SystemMessage(content=SYSTEM_PROMPT),
@@ -35,7 +38,8 @@ def profile_agent(state: PlannerState) -> dict[str, Any]:
             HumanMessage(content=payload),
         ]
     )
-    get_tracker().record("profile_agent", response)
+    _t1 = time.perf_counter()
+    get_tracker().record("profile_agent", response, elapsed_seconds=_t1 - _t0)
     profile_summary = message_to_text(response)
     LOGGER.info("Krok 1/6: profil gotowy: %s", compact_text(profile_summary))
     return {

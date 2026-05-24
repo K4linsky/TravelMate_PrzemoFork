@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import json
 from typing import Any
 
@@ -217,6 +219,7 @@ def itinerary_agent(state: PlannerState) -> dict[str, Any]:
     task_compact = COMPACT_TASK_PROMPT
 
     try:
+        _t0 = time.perf_counter()
         llm_response = llm.invoke(
             [
                 SystemMessage(content=COMPACT_SYSTEM_PROMPT),
@@ -224,7 +227,8 @@ def itinerary_agent(state: PlannerState) -> dict[str, Any]:
                 HumanMessage(content=json.dumps(payload, ensure_ascii=False, separators=(",", ":"))),
             ]
         )
-        get_tracker().record("itinerary_agent", llm_response)
+        _t1 = time.perf_counter()
+        get_tracker().record("itinerary_agent", llm_response, elapsed_seconds=_t1 - _t0)
         itinerary_markdown = message_to_text(llm_response)
         response = parse_itinerary_markdown(itinerary_markdown)
     except BadRequestError as exc:

@@ -17,6 +17,7 @@ class AgentTokenUsage:
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    elapsed_seconds: float = 0.0
 
 
 @dataclass
@@ -41,6 +42,7 @@ class PipelineTokenSummary:
                     "input_tokens": a.input_tokens,
                     "output_tokens": a.output_tokens,
                     "total_tokens": a.total_tokens,
+                    "elapsed_seconds": a.elapsed_seconds,
                 }
                 for a in self.agents
             ],
@@ -61,32 +63,49 @@ class TokenTracker:
             self._model_name = model_name
             self._provider = provider
 
-    def record(self, agent_name: str, response: Any) -> None:
+    def record(self, agent_name: str, response: Any, elapsed_seconds: float = 0.0) -> None:
         """Extract token counts from a LangChain response and record them."""
         input_tokens = 0
         output_tokens = 0
 
-        # LangChain standard: response.usage_metadata
+        # LangChain standard: response.usage_metadata (dict or object)
         usage = getattr(response, "usage_metadata", None)
         if usage:
-            input_tokens = getattr(usage, "input_tokens", 0) or 0
-            output_tokens = getattr(usage, "output_tokens", 0) or 0
+            if isinstance(usage, dict):
+                input_tokens = usage.get("input_tokens", 0) or 0
+                output_tokens = usage.get("output_tokens", 0) or 0
+            else:
+                input_tokens = getattr(usage, "input_tokens", 0) or 0
+                output_tokens = getattr(usage, "output_tokens", 0) or 0
 
-        # Fallback: response_metadata (OpenAI / Anthropic raw)
+        # Fallback: response_metadata — OpenAI / Anthropic / Gemini raw formats
         if input_tokens == 0 and output_tokens == 0:
             meta = getattr(response, "response_metadata", {}) or {}
-            token_usage = meta.get("token_usage") or meta.get("usage") or {}
-            if isinstance(token_usage, dict):
-                input_tokens = (
-                    token_usage.get("prompt_tokens")
-                    or token_usage.get("input_tokens")
-                    or 0
-                )
-                output_tokens = (
-                    token_usage.get("completion_tokens")
-                    or token_usage.get("output_tokens")
-                    or 0
-                )
+
+            # OpenAI format
+            token_usage = meta.get("token_usage") or {}
+            if isinstance(token_usage, dict) and token_usage:
+                input_tokens = token_usage.get("prompt_tokens", 0) or 0
+                output_tokens = token_usage.get("completion_tokens", 0) or 0
+
+            # Anthropic format
+            if input_tokens == 0:
+                usage_dict = meta.get("usage") or {}
+                if isinstance(usage_dict, dict):
+                    input_tokens = usage_dict.get("input_tokens", 0) or 0
+                    output_tokens = usage_dict.get("output_tokens", 0) or 0
+
+            # Google Gemini format — usageMetadata nested
+            if input_tokens == 0:
+                usage_meta = meta.get("usageMetadata") or meta.get("usage_metadata") or {}
+                if isinstance(usage_meta, dict):
+                    input_tokens = usage_meta.get("promptTokenCount", 0) or 0
+                    output_tokens = usage_meta.get("candidatesTokenCount", 0) or 0
+
+            # Gemini via prompt_token_count / candidates_token_count at top level
+            if input_tokens == 0:
+                input_tokens = meta.get("prompt_token_count", 0) or 0
+                output_tokens = meta.get("candidates_token_count", 0) or 0
 
         with self._lock:
             self._agents.append(
@@ -95,6 +114,7 @@ class TokenTracker:
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     total_tokens=input_tokens + output_tokens,
+                    elapsed_seconds=round(elapsed_seconds, 2),
                 )
             )
 

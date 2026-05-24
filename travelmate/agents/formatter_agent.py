@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import json
 import re
 from typing import Any
@@ -132,6 +134,7 @@ def formatter_agent(state: PlannerState) -> dict[str, Any]:
         verification_markdown=payload["verification_markdown"],
     )
 
+    _t0 = time.perf_counter()
     response = llm.invoke(
         [
             SystemMessage(content=SYSTEM_PROMPT),
@@ -139,7 +142,8 @@ def formatter_agent(state: PlannerState) -> dict[str, Any]:
             HumanMessage(content=payload["baseline_markdown"]),
         ]
     )
-    get_tracker().record("formatter_agent", response)
+    _t1 = time.perf_counter()
+    get_tracker().record("formatter_agent", response, elapsed_seconds=_t1 - _t0)
     final_markdown = message_to_text(response) or baseline_markdown
 
     is_consistent, reason = _is_formatter_output_consistent(
