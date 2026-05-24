@@ -292,6 +292,8 @@ def _run_planner_sync(session: ChatSession, message: str) -> None:
                 "days": result.parsed.request.days,
                 "html_output_path": str(result.html_output_path),
                 "map_output_path": str(result.map_output_path) if result.map_output_path else None,
+                "trip_id": result.html_output_path.parent.name,
+                "trip_url": f"/trips/{result.html_output_path.parent.name}/html",
             }
         )
         session.set_state("completed")
@@ -330,7 +332,62 @@ async def _run_planner(session: ChatSession, message: str) -> None:
 
 @app.get("/health")
 async def health() -> JSONResponse:
-    return JSONResponse({"status": "ok"})
+    from travelmate.tools.model_factory import get_model_runtime_status
+    provider, model_name, active, message = get_model_runtime_status()
+    return JSONResponse({
+        "status": "ok",
+        "provider": provider,
+        "model": model_name,
+        "model_active": active,
+        "message": message,
+    })
+
+
+@app.get("/trips")
+async def list_trips() -> JSONResponse:
+    """Return all saved trips from output/ folder, newest first."""
+    trips = []
+    if OUTPUT_ROOT.exists():
+        for folder in sorted(OUTPUT_ROOT.iterdir(), reverse=True):
+            if not folder.is_dir():
+                continue
+            request_file = folder / "request.json"
+            itinerary_file = folder / "itinerary.md"
+            html_file = folder / "itinerary.html"
+            token_file = folder / "token_usage.json"
+            if not request_file.exists():
+                continue
+            try:
+                import json as _json
+                req = _json.loads(request_file.read_text(encoding="utf-8"))
+                token_data = None
+                if token_file.exists():
+                    token_data = _json.loads(token_file.read_text(encoding="utf-8"))
+                trips.append({
+                    "id": folder.name,
+                    "destination": req.get("destination", "?"),
+                    "days": req.get("days", "?"),
+                    "budget": req.get("budget", "?"),
+                    "pace": req.get("pace", "?"),
+                    "participants": req.get("participants", 1),
+                    "interests": req.get("interests", []),
+                    "has_html": html_file.exists(),
+                    "has_markdown": itinerary_file.exists(),
+                    "token_usage": token_data,
+                })
+            except Exception:
+                continue
+    return JSONResponse({"trips": trips})
+
+
+@app.get("/trips/{trip_id}/html")
+async def get_trip_html(trip_id: str) -> FileResponse:
+    """Serve the generated HTML itinerary for a trip."""
+    safe_id = "".join(c for c in trip_id if c.isalnum() or c in "_-")
+    html_file = OUTPUT_ROOT / safe_id / "itinerary.html"
+    if not html_file.exists():
+        raise HTTPException(status_code=404, detail="Trip HTML not found")
+    return FileResponse(html_file, media_type="text/html")
 
 
 @app.get("/")

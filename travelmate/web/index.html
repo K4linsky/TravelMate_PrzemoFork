@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html lang="pl" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,101 +8,112 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
     <style>
       :root {
+        --bg: #09090b;
+        --bg2: #18181b;
+        --card: rgba(24,24,27,0.82);
+        --border: rgba(255,255,255,0.08);
+        --text: #f4f4f5;
+        --muted: #a1a1aa;
+        --accent: #6366f1;
+        --accent2: #8b5cf6;
+        --success: #10b981;
+        --warning: #f59e0b;
+        --error: #ef4444;
         color-scheme: dark;
       }
-
-      html,
+      [data-theme="light"] {
+        --bg: #f8fafc;
+        --bg2: #f1f5f9;
+        --card: rgba(255,255,255,0.92);
+        --border: rgba(0,0,0,0.08);
+        --text: #0f172a;
+        --muted: #64748b;
+        color-scheme: light;
+      }
+      html, body { height: 100%; overflow: hidden; }
       body {
-        height: 100%;
-        overflow: hidden;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        transition: background 0.2s, color 0.2s;
       }
-
-      body {
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background:
-          radial-gradient(circle at top, rgba(99, 102, 241, 0.22), transparent 28%),
-          linear-gradient(180deg, #09090b 0%, #18181b 100%);
+      [data-theme="dark"] body {
+        background: radial-gradient(circle at top, rgba(99,102,241,0.18), transparent 30%),
+                    linear-gradient(180deg, #09090b 0%, #18181b 100%);
       }
+      .app-shell { height: var(--app-height, 100dvh); max-height: var(--app-height, 100dvh); }
+      .glass { background: var(--card); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
 
-      .app-shell {
-        height: var(--app-height, 100dvh);
-        max-height: var(--app-height, 100dvh);
-      }
+      /* Tabs */
+      .tab-btn { transition: all 0.15s; }
+      .tab-btn.active { background: rgba(99,102,241,0.2); color: #a5b4fc; border-color: rgba(99,102,241,0.4); }
 
-      .glass {
-        background: rgba(24, 24, 27, 0.76);
-        backdrop-filter: blur(14px);
-      }
+      /* Progress bar */
+      .progress-track { background: rgba(255,255,255,0.06); border-radius: 9999px; overflow: hidden; }
+      .progress-fill { height: 100%; border-radius: 9999px; background: linear-gradient(90deg, #6366f1, #8b5cf6); transition: width 0.4s ease; }
 
-      .message-markdown {
-        overflow-wrap: anywhere;
-        word-break: break-word;
-      }
+      /* Agent pills */
+      .agent-pill { transition: all 0.2s; }
+      .agent-pill.idle { background: rgba(255,255,255,0.04); color: var(--muted); }
+      .agent-pill.processing { background: rgba(245,158,11,0.15); color: #fcd34d; border-color: rgba(245,158,11,0.3); animation: pulse-border 1.5s infinite; }
+      .agent-pill.done { background: rgba(16,185,129,0.12); color: #6ee7b7; border-color: rgba(16,185,129,0.25); }
+      .agent-pill.error { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.25); }
+      @keyframes pulse-border { 0%,100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.3); } 50% { box-shadow: 0 0 0 4px rgba(245,158,11,0.1); } }
 
-      .message-markdown h1,
-      .message-markdown h2,
-      .message-markdown h3 {
-        font-weight: 700;
-        margin-top: 0.75rem;
-        margin-bottom: 0.35rem;
-      }
+      /* Markdown */
+      .md h1,.md h2,.md h3,.md h4 { font-weight: 700; margin: 0.9rem 0 0.4rem; color: var(--text); }
+      .md h1 { font-size: 1.4rem; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; }
+      .md h2 { font-size: 1.15rem; border-left: 3px solid var(--accent); padding-left: 0.6rem; }
+      .md h3 { font-size: 1rem; }
+      .md p { margin: 0.4rem 0 0.7rem; line-height: 1.65; }
+      .md ul,.md ol { padding-left: 1.3rem; margin: 0.4rem 0 0.8rem; }
+      .md li { margin: 0.2rem 0; line-height: 1.6; }
+      .md table { width: 100%; border-collapse: collapse; margin: 0.8rem 0; border-radius: 10px; overflow: hidden; }
+      .md th,.md td { padding: 0.5rem 0.7rem; border: 1px solid var(--border); text-align: left; font-size: 0.85rem; }
+      .md th { background: rgba(99,102,241,0.1); font-weight: 600; }
+      .md code { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 0.1rem 0.35rem; font-size: 0.85em; }
+      .md pre { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem; overflow-x: auto; margin: 0.6rem 0; }
+      .md blockquote { border-left: 3px solid var(--accent); background: rgba(99,102,241,0.06); padding: 0.5rem 0.8rem; border-radius: 0 8px 8px 0; margin: 0.6rem 0; }
+      .md hr { border: 0; border-top: 1px dashed var(--border); margin: 1rem 0; }
+      .md strong { color: var(--text); }
+      [data-theme="light"] .md code { background: rgba(0,0,0,0.06); }
+      [data-theme="light"] .md pre { background: rgba(0,0,0,0.04); }
 
-      .message-markdown ul {
-        list-style: disc;
-        margin-left: 1.25rem;
-      }
+      /* Scrollbar */
+      .thin-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+      .thin-scrollbar::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.4); border-radius: 9999px; }
 
-      .message-markdown ol {
-        list-style: decimal;
-        margin-left: 1.25rem;
-      }
+      /* Chat messages */
+      .msg-user { background: rgba(99,102,241,0.18); border-color: rgba(99,102,241,0.3); }
+      .msg-assistant { background: rgba(255,255,255,0.04); border-color: var(--border); }
 
-      .message-markdown p,
-      .message-markdown li {
-        line-height: 1.6;
-      }
+      /* Trip card */
+      .trip-card { transition: all 0.15s; cursor: pointer; }
+      .trip-card:hover { background: rgba(99,102,241,0.08); border-color: rgba(99,102,241,0.3); transform: translateY(-1px); }
 
-      .message-markdown code {
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 0.4rem;
-        padding: 0.1rem 0.35rem;
-        white-space: break-spaces;
-      }
+      /* Typing indicator */
+      @keyframes blink { 0%,80%,100% { opacity: 0; } 40% { opacity: 1; } }
+      .typing-dot { animation: blink 1.4s infinite; }
+      .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+      .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
-      .thin-scrollbar::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
+      /* Toast */
+      #toast { transition: all 0.3s; }
 
-      .thin-scrollbar::-webkit-scrollbar-thumb {
-        background: rgba(99, 102, 241, 0.55);
-        border-radius: 9999px;
-      }
-
-      #logStream,
-      #logStreamMobile,
-      #debugSnapshots,
-      #debugSnapshotsMobile {
-        overflow-wrap: anywhere;
-        word-break: break-word;
-      }
-
+      /* Admin layout */
       @media (min-width: 1280px) {
-        main.admin-open {
-          display: grid !important;
-          grid-template-columns: minmax(0, 1fr) 360px;
-          gap: 1rem;
-          min-height: 0;
-        }
-
-        main.admin-open > section,
-        main.admin-open > aside {
-          min-height: 0;
-          height: 100%;
-        }
+        main.admin-open { display: grid !important; grid-template-columns: minmax(0,1fr) 380px; gap: 1rem; min-height: 0; }
+        main.admin-open > section, main.admin-open > aside { min-height: 0; height: 100%; }
       }
+
+      /* Textarea auto-grow */
+      textarea { field-sizing: content; min-height: 80px; max-height: 280px; }
+
+      /* Smooth transitions */
+      * { transition-property: background-color, border-color, color, opacity; transition-duration: 150ms; }
     </style>
   </head>
   <body class="text-zinc-100">
@@ -222,295 +233,434 @@
     </div>
 
     <script>
-      const STORAGE_KEY = "travelmate-session-id";
+      // ── markdown-it renderer ──────────────────────────────────────────────
+      const md = window.markdownit ? window.markdownit({ html: false, linkify: true, breaks: true, typographer: true }) : null;
+      function renderMd(text) {
+        if (!text) return '';
+        if (md) return md.render(text);
+        // fallback: basic escape
+        return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+      }
+
+      // ── state ─────────────────────────────────────────────────────────────
+      const STORAGE_KEY = 'travelmate-session-id';
       const sessionId = localStorage.getItem(STORAGE_KEY) || crypto.randomUUID();
       localStorage.setItem(STORAGE_KEY, sessionId);
 
       const state = {
-        sessionId,
-        socket: null,
-        logs: [],
-        debugSnapshots: [],
-        agentStatuses: [],
-        messages: new Set(),
-        runtimeStatus: "idle",
-        adminOpen: false,
+        sessionId, socket: null,
+        logs: [], debugSnapshots: [], agentStatuses: [],
+        messages: new Set(), runtimeStatus: 'idle', adminOpen: false,
+        activeTab: 'chat', theme: localStorage.getItem('tm-theme') || 'dark',
       };
 
-      const chatMain = document.getElementById("chatMain");
-      const chatFeed = document.getElementById("chatFeed");
-      const chatForm = document.getElementById("chatForm");
-      const messageInput = document.getElementById("messageInput");
-      const sendButton = document.getElementById("sendButton");
-      const runtimeStatus = document.getElementById("runtimeStatus");
-      const sessionBadge = document.getElementById("sessionBadge");
-      const adminToggle = document.getElementById("adminToggle");
-      const adminPanel = document.getElementById("adminPanel");
-      const adminModal = document.getElementById("adminModal");
-      const adminCloseMobile = document.getElementById("adminCloseMobile");
-      const agentTargets = [document.getElementById("agentList"), document.getElementById("agentListMobile")];
-      const logTargets = [document.getElementById("logStream"), document.getElementById("logStreamMobile")];
-      const debugTargets = [document.getElementById("debugSnapshots"), document.getElementById("debugSnapshotsMobile")];
+      // ── DOM refs ──────────────────────────────────────────────────────────
+      const $ = id => document.getElementById(id);
+      const chatFeed = $('chatFeed'), chatForm = $('chatForm'), messageInput = $('messageInput');
+      const sendButton = $('sendButton'), runtimeStatus = $('runtimeStatus');
+      const adminToggle = $('adminToggle'), adminPanel = $('adminPanel'), adminModal = $('adminModal');
+      const progressBar = $('progressBar'), progressFill = $('progressFill'), progressLabel = $('progressLabel');
+      const agentPills = $('agentPills'), toast = $('toast');
+      const agentTargets = [$('agentList'), $('agentListMobile')];
+      const logTargets = [$('logStream'), $('logStreamMobile')];
+      const debugTargets = [$('debugSnapshots'), $('debugSnapshotsMobile')];
 
-      sessionBadge.textContent = `Sesja: ${sessionId.slice(0, 8)}…`;
+      const AGENT_LABELS = {
+        profile_agent: '👤 Profile', transport_agent: '✈️ Transport',
+        geo_agent: '🗺️ Geo', itinerary_agent: '📅 Itinerary',
+        verification_agent: '✅ Verify', formatter_agent: '✨ Format',
+      };
+      const AGENT_ORDER = ['profile_agent','transport_agent','geo_agent','itinerary_agent','verification_agent','formatter_agent'];
 
-      function escapeHtml(value) {
-        return value
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#39;");
+      // ── theme ─────────────────────────────────────────────────────────────
+      function applyTheme(t) {
+        state.theme = t;
+        document.documentElement.setAttribute('data-theme', t);
+        localStorage.setItem('tm-theme', t);
+        $('themeIconDark').classList.toggle('hidden', t === 'light');
+        $('themeIconLight').classList.toggle('hidden', t === 'dark');
+      }
+      applyTheme(state.theme);
+      $('themeToggle').addEventListener('click', () => applyTheme(state.theme === 'dark' ? 'light' : 'dark'));
+
+      // ── toast ─────────────────────────────────────────────────────────────
+      let toastTimer;
+      function showToast(msg, type = 'info') {
+        const colors = { info: 'text-indigo-300', success: 'text-emerald-300', error: 'text-red-300' };
+        toast.className = `fixed top-4 right-4 z-[100] rounded-xl border border-white/10 glass px-4 py-3 text-sm shadow-2xl max-w-xs ${colors[type] || colors.info}`;
+        toast.textContent = msg;
+        toast.classList.remove('hidden');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.add('hidden'), 3500);
       }
 
-      function formatMarkdownLite(markdown) {
-        const escaped = escapeHtml(markdown);
-        return escaped
-          .replace(/^### (.*)$/gm, "<h3>$1</h3>")
-          .replace(/^## (.*)$/gm, "<h2>$1</h2>")
-          .replace(/^# (.*)$/gm, "<h1>$1</h1>")
-          .replace(/^[-*] (.*)$/gm, "<li>$1</li>")
-          .replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>")
-          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-          .replace(/\*(.*?)\*/g, "<em>$1</em>")
-          .replace(/`([^`]+)`/g, "<code>$1</code>")
-          .replace(/\n{2,}/g, "</p><p>")
-          .replace(/\n/g, "<br />");
+      // ── tabs ──────────────────────────────────────────────────────────────
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset.tab;
+          state.activeTab = tab;
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+          $('tabChat').classList.toggle('hidden', tab !== 'chat');
+          $('tabTrips').classList.toggle('hidden', tab !== 'trips');
+          if (tab === 'trips') loadTrips();
+        });
+      });
+
+      // ── suggestions ───────────────────────────────────────────────────────
+      document.querySelectorAll('.suggestion-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          messageInput.value = btn.textContent.replace(/^[^\s]+\s/, '');
+          messageInput.focus();
+          updateCharCount();
+        });
+      });
+
+      // ── char count ────────────────────────────────────────────────────────
+      function updateCharCount() {
+        const n = messageInput.value.length;
+        $('charCount').textContent = n > 0 ? n : '';
+        $('charCount').className = `absolute bottom-2 right-3 text-[10px] ${n > 800 ? 'text-amber-500' : 'text-zinc-600'}`;
+      }
+      messageInput.addEventListener('input', updateCharCount);
+
+      // ── escape html ───────────────────────────────────────────────────────
+      function esc(v) {
+        return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       }
 
-      function appendMessage(role, content, createdAt = new Date().toISOString()) {
-        const key = `${role}:${createdAt}:${content}`;
-        if (state.messages.has(key)) {
-          return;
-        }
+      // ── append chat message ───────────────────────────────────────────────
+      function appendMessage(role, content, createdAt = new Date().toISOString(), extra = {}) {
+        const key = `${role}:${createdAt}:${content.slice(0,80)}`;
+        if (state.messages.has(key)) return;
         state.messages.add(key);
 
-        const wrapper = document.createElement("article");
-        const isUser = role === "user";
-        wrapper.className = [
-          "max-w-3xl rounded-2xl border px-4 py-3 text-sm shadow-lg shadow-black/10",
-          isUser
-            ? "ml-auto border-indigo-400/30 bg-indigo-500/20 text-indigo-50"
-            : "border-white/10 bg-white/5 text-zinc-200",
-        ].join(" ");
+        const isUser = role === 'user';
+        const wrapper = document.createElement('article');
+        wrapper.className = `max-w-3xl rounded-2xl border px-4 py-3 text-sm shadow-lg ${isUser ? 'ml-auto msg-user' : 'msg-assistant'}`;
+
+        const time = new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const avatar = isUser
+          ? `<div class="h-6 w-6 rounded-full bg-violet-600 flex items-center justify-center text-[10px] font-bold text-white">You</div>`
+          : `<div class="h-6 w-6 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-[10px] font-bold text-white">TM</div>`;
+        const name = isUser ? '<span class="text-xs font-semibold text-violet-300">You</span>' : '<span class="text-xs font-semibold text-indigo-300">TravelMate</span>';
+
+        let body = `<div class="md text-sm overflow-wrap-anywhere">${isUser ? esc(content).replace(/\n/g,'<br>') : renderMd(content)}</div>`;
+
+        // Add "Open Plan" button if trip_url present
+        if (extra.trip_url) {
+          body += `<div class="mt-3 flex gap-2 flex-wrap">
+            <a href="${extra.trip_url}" target="_blank" class="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500 transition">
+              🗺️ Open Interactive Plan
+            </a>
+            <button onclick="copyToClipboard(this)" data-content="${esc(content)}" class="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-zinc-300 hover:text-white transition">
+              📋 Copy Markdown
+            </button>
+          </div>`;
+        }
 
         wrapper.innerHTML = `
-          <div class="flex items-center justify-between gap-4">
-            <p class="font-medium ${isUser ? "text-indigo-200" : "text-indigo-300"}">${isUser ? "Ty" : "TravelMate"}</p>
-            <span class="text-[11px] text-zinc-400">${new Date(createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <div class="flex items-center gap-2">${avatar}${name}</div>
+            <span class="text-[10px] text-zinc-500">${time}</span>
           </div>
-          <div class="message-markdown mt-2">${formatMarkdownLite(content)}</div>
+          ${body}
         `;
         chatFeed.appendChild(wrapper);
         chatFeed.scrollTop = chatFeed.scrollHeight;
       }
 
-      function renderAgents() {
-        const markup = state.agentStatuses
-          .map(({ name, status, elapsed_seconds }) => {
-            const color = {
-              IDLE: "bg-zinc-800 text-zinc-300",
-              PROCESSING: "bg-amber-500/20 text-amber-200 border border-amber-300/30",
-              DONE: "bg-emerald-500/20 text-emerald-200 border border-emerald-300/30",
-              ERROR: "bg-rose-500/20 text-rose-200 border border-rose-300/30",
-            }[status] || "bg-zinc-800 text-zinc-300";
-
-            const hasElapsed = typeof elapsed_seconds === "number";
-            const elapsed = hasElapsed ? `${elapsed_seconds.toFixed(1)}s` : "";
-            const badgeText = hasElapsed ? `${status} • ${elapsed}` : status;
-
-            return `
-              <div class="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-                <span class="text-sm text-zinc-200">${name}</span>
-                <span class="rounded-full px-2.5 py-1 text-[11px] font-semibold ${color}">${badgeText}</span>
-              </div>
-            `;
-          })
-          .join("");
-        agentTargets.forEach((target) => {
-          target.innerHTML = markup || '<p class="text-xs text-zinc-500">Brak danych o agentach.</p>';
-        });
+      // ── typing indicator ──────────────────────────────────────────────────
+      let typingEl = null;
+      function showTyping() {
+        if (typingEl) return;
+        typingEl = document.createElement('div');
+        typingEl.id = 'typingIndicator';
+        typingEl.className = 'flex items-center gap-2 px-4 py-2';
+        typingEl.innerHTML = `
+          <div class="h-6 w-6 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-[10px] font-bold text-white">TM</div>
+          <div class="flex gap-1">
+            <span class="typing-dot h-2 w-2 rounded-full bg-indigo-400"></span>
+            <span class="typing-dot h-2 w-2 rounded-full bg-indigo-400"></span>
+            <span class="typing-dot h-2 w-2 rounded-full bg-indigo-400"></span>
+          </div>
+          <span class="text-xs text-zinc-500">Agents working…</span>
+        `;
+        chatFeed.appendChild(typingEl);
+        chatFeed.scrollTop = chatFeed.scrollHeight;
+      }
+      function hideTyping() {
+        if (typingEl) { typingEl.remove(); typingEl = null; }
       }
 
+      // ── progress bar ──────────────────────────────────────────────────────
+      function updateProgress(agents) {
+        const done = agents.filter(a => a.status === 'DONE').length;
+        const processing = agents.filter(a => a.status === 'PROCESSING').length;
+        const total = AGENT_ORDER.length;
+        const pct = Math.round(((done + processing * 0.5) / total) * 100);
+        progressFill.style.width = pct + '%';
+        progressLabel.textContent = `${done} / ${total}`;
+
+        // Pills
+        agentPills.innerHTML = agents.map(a => {
+          const cls = { IDLE: 'idle', PROCESSING: 'processing', DONE: 'done', ERROR: 'error' }[a.status] || 'idle';
+          const elapsed = typeof a.elapsed_seconds === 'number' ? ` ${a.elapsed_seconds.toFixed(1)}s` : '';
+          return `<span class="agent-pill rounded-full border px-2 py-0.5 text-[10px] font-semibold ${cls}">${AGENT_LABELS[a.name] || a.name}${elapsed}</span>`;
+        }).join('');
+      }
+
+      // ── agent list (admin) ────────────────────────────────────────────────
+      function renderAgents(agents) {
+        const markup = agents.map(({ name, status, elapsed_seconds }) => {
+          const cls = { IDLE: 'idle', PROCESSING: 'processing', DONE: 'done', ERROR: 'error' }[status] || 'idle';
+          const elapsed = typeof elapsed_seconds === 'number' ? ` · ${elapsed_seconds.toFixed(1)}s` : '';
+          return `<div class="agent-pill flex items-center justify-between rounded-xl border px-3 py-2 ${cls}">
+            <span class="text-xs">${AGENT_LABELS[name] || name}</span>
+            <span class="text-[10px] font-bold">${status}${elapsed}</span>
+          </div>`;
+        }).join('');
+        agentTargets.forEach(t => { t.innerHTML = markup || '<p class="text-xs text-zinc-500">No agent data yet.</p>'; });
+      }
+
+      // ── log stream ────────────────────────────────────────────────────────
       function renderLogs() {
-        const markup = state.logs
-          .slice(-120)
-          .map((entry) => `<div class="mb-2 border-b border-white/5 pb-2 last:mb-0 last:border-b-0 last:pb-0">${escapeHtml(entry.message)}</div>`)
-          .join("");
-        logTargets.forEach((target) => {
-          target.innerHTML = markup || '<p class="text-xs text-zinc-500">Logi pojawią się po uruchomieniu pipeline’u.</p>';
-          target.scrollTop = target.scrollHeight;
+        const markup = state.logs.slice(-150).map(e =>
+          `<div class="mb-1 last:mb-0 opacity-80 hover:opacity-100">${esc(e.message)}</div>`
+        ).join('');
+        logTargets.forEach(t => {
+          t.innerHTML = markup || '<p class="text-zinc-500">Logs will appear here.</p>';
+          t.scrollTop = t.scrollHeight;
         });
       }
 
+      // ── debug snapshots ───────────────────────────────────────────────────
       function renderDebug() {
-        const markup = state.debugSnapshots
-          .slice(-20)
-          .map((item) => `
-            <details class="mb-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-              <summary class="cursor-pointer text-xs font-semibold uppercase tracking-[0.2em] text-indigo-300">${escapeHtml(item.label)}</summary>
-              <pre class="mt-2 whitespace-pre-wrap break-words text-[11px] text-zinc-300">${escapeHtml(JSON.stringify(item.data, null, 2))}</pre>
-            </details>
-          `)
-          .join("");
-        debugTargets.forEach((target) => {
-          target.innerHTML = markup || '<p class="text-xs text-zinc-500">Snapshoty debugowe pojawią się w trakcie i po zakończeniu planowania.</p>';
-          target.scrollTop = target.scrollHeight;
+        const markup = state.debugSnapshots.slice(-20).map(item =>
+          `<details class="mb-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+            <summary class="cursor-pointer text-[10px] font-bold uppercase tracking-widest text-indigo-300">${esc(item.label)}</summary>
+            <pre class="mt-2 whitespace-pre-wrap break-words text-[10px] text-zinc-300">${esc(JSON.stringify(item.data, null, 2))}</pre>
+          </details>`
+        ).join('');
+        debugTargets.forEach(t => {
+          t.innerHTML = markup || '<p class="text-zinc-500 text-xs">Debug snapshots will appear here.</p>';
+          t.scrollTop = t.scrollHeight;
         });
       }
 
+      // ── runtime status badge ──────────────────────────────────────────────
       function setRuntimeStatus(status) {
         state.runtimeStatus = status;
         runtimeStatus.textContent = status.toUpperCase();
-        runtimeStatus.className = "rounded-full px-3 py-1 text-xs font-medium ";
-        if (status === "completed") {
-          runtimeStatus.classList.add("bg-emerald-500/20", "text-emerald-200");
-        } else if (status === "running" || status === "queued") {
-          runtimeStatus.classList.add("bg-amber-500/20", "text-amber-200");
-        } else if (status === "error") {
-          runtimeStatus.classList.add("bg-rose-500/20", "text-rose-200");
+        const map = {
+          completed: 'bg-emerald-500/20 text-emerald-200',
+          running: 'bg-amber-500/20 text-amber-200',
+          queued: 'bg-amber-500/20 text-amber-200',
+          error: 'bg-red-500/20 text-red-200',
+        };
+        runtimeStatus.className = `rounded-full px-3 py-1 text-xs font-medium ${map[status] || 'bg-zinc-800 text-zinc-300'}`;
+        if (status === 'running' || status === 'queued') {
+          progressBar.classList.remove('hidden');
+          showTyping();
         } else {
-          runtimeStatus.classList.add("bg-zinc-800", "text-zinc-300");
+          hideTyping();
+          if (status === 'completed' || status === 'error') {
+            setTimeout(() => progressBar.classList.add('hidden'), 3000);
+          }
         }
       }
 
+      // ── copy to clipboard ─────────────────────────────────────────────────
+      window.copyToClipboard = async function(btn) {
+        const text = btn.dataset.content;
+        try {
+          await navigator.clipboard.writeText(text);
+          btn.textContent = '✅ Copied!';
+          setTimeout(() => { btn.textContent = '📋 Copy Markdown'; }, 2000);
+        } catch { showToast('Copy failed', 'error'); }
+      };
+
+      // ── event handler ─────────────────────────────────────────────────────
       function handleEvent(event) {
         switch (event.type) {
-          case "chat_message":
+          case 'chat_message':
             appendMessage(event.role, event.content, event.created_at);
             break;
-          case "log_entry":
+          case 'log_entry':
             state.logs.push(event);
             renderLogs();
             break;
-          case "debug_json":
+          case 'debug_json':
             state.debugSnapshots.push(event);
             renderDebug();
             break;
-          case "agent_statuses":
+          case 'agent_statuses':
             state.agentStatuses = event.agents;
-            renderAgents();
+            renderAgents(event.agents);
+            updateProgress(event.agents);
             break;
-          case "session_status":
+          case 'session_status':
             setRuntimeStatus(event.status);
             break;
-          case "final_result":
-            if (event.html_output_path) {
-              appendMessage(
-                "assistant",
-                `Plan zapisany do: \`${event.html_output_path}\`\n\nDocelowa destynacja: **${event.destination}** (${event.days} dni).`,
+          case 'final_result':
+            hideTyping();
+            if (event.trip_url) {
+              appendMessage('assistant',
+                `✅ Plan gotowy! **${event.destination}** · ${event.days} dni`,
                 new Date().toISOString(),
+                { trip_url: event.trip_url }
               );
+              showToast(`Trip to ${event.destination} ready!`, 'success');
             }
             break;
-          case "error":
-            state.logs.push({ message: `[error] ${event.message}` });
+          case 'error':
+            state.logs.push({ message: `[ERROR] ${event.message}` });
             renderLogs();
-            break;
-          default:
+            showToast('Pipeline error — check Admin View', 'error');
             break;
         }
       }
 
+      // ── websocket ─────────────────────────────────────────────────────────
       function connectSocket() {
-        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-        const url = `${protocol}://${window.location.host}/admin/logs?session_id=${encodeURIComponent(state.sessionId)}`;
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        const url = `${proto}://${location.host}/admin/logs?session_id=${encodeURIComponent(state.sessionId)}`;
         state.socket = new WebSocket(url);
-
-        state.socket.addEventListener("message", (messageEvent) => {
-          const payload = JSON.parse(messageEvent.data);
-          handleEvent(payload);
-        });
-
-        state.socket.addEventListener("close", () => {
-          setRuntimeStatus(state.runtimeStatus === "running" ? "reconnecting" : state.runtimeStatus);
-          window.setTimeout(connectSocket, 1500);
+        state.socket.addEventListener('message', e => handleEvent(JSON.parse(e.data)));
+        state.socket.addEventListener('close', () => {
+          setTimeout(connectSocket, 1500);
         });
       }
 
-      async function sendMessage(event) {
-        event.preventDefault();
+      // ── send message ──────────────────────────────────────────────────────
+      async function sendMessage(e) {
+        e.preventDefault();
         const message = messageInput.value.trim();
-        if (!message) {
-          messageInput.focus();
-          return;
-        }
+        if (!message) { messageInput.focus(); return; }
+        if (message.length < 5) { showToast('Message too short — describe your trip!', 'error'); return; }
 
         sendButton.disabled = true;
+        appendMessage('user', message);
+        messageInput.value = '';
+        updateCharCount();
+
         try {
-          const response = await fetch("/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+          const res = await fetch('/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ session_id: state.sessionId, message }),
           });
-
-          if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            throw new Error(payload.detail || "Nie udało się wysłać wiadomości.");
+          if (!res.ok) {
+            const payload = await res.json().catch(() => ({}));
+            throw new Error(payload.detail || 'Failed to send');
           }
-
-          messageInput.value = "";
-          messageInput.style.height = "auto";
-        } catch (error) {
-          appendMessage("assistant", `Nie udało się wysłać wiadomości: ${error.message}`);
+        } catch (err) {
+          hideTyping();
+          appendMessage('assistant', `❌ Error: ${err.message}`);
+          showToast(err.message, 'error');
         } finally {
           sendButton.disabled = false;
+          messageInput.focus();
         }
       }
 
-      function autoGrowTextarea() {
-        messageInput.style.height = "auto";
-        messageInput.style.height = `${Math.min(messageInput.scrollHeight, 320)}px`;
-      }
-
-      function toggleAdminView(forceOpen = null) {
-        const shouldOpen = forceOpen !== null ? forceOpen : !state.adminOpen;
-        state.adminOpen = shouldOpen;
-
-        if (window.matchMedia("(min-width: 1280px)").matches) {
-          if (shouldOpen) {
-            adminPanel.classList.remove("hidden");
-            adminPanel.classList.add("flex");
-            chatMain.classList.add("admin-open");
-          } else {
-            adminPanel.classList.remove("flex");
-            adminPanel.classList.add("hidden");
-            chatMain.classList.remove("admin-open");
+      // ── trips tab ─────────────────────────────────────────────────────────
+      async function loadTrips() {
+        const list = $('tripsList');
+        list.innerHTML = '<p class="text-xs text-zinc-500 text-center py-8">Loading…</p>';
+        try {
+          const res = await fetch('/trips');
+          const { trips } = await res.json();
+          if (!trips.length) {
+            list.innerHTML = '<p class="text-xs text-zinc-500 text-center py-8">No trips yet. Generate your first one!</p>';
+            return;
           }
-        } else {
-          adminModal.classList.toggle("hidden", !shouldOpen);
+          list.innerHTML = trips.map(t => {
+            const tokens = t.token_usage ? `<span class="text-[10px] text-zinc-500">· ${t.token_usage.total_tokens?.toLocaleString()} tokens</span>` : '';
+            const interests = t.interests?.slice(0,3).join(', ') || '';
+            return `<div class="trip-card rounded-xl border border-white/10 bg-white/5 px-4 py-3" onclick="openTrip('${t.id}')">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-bold text-white">🗺️ ${esc(t.destination)}</span>
+                    <span class="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-300">${t.days}d</span>
+                    <span class="rounded-full bg-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300">${t.budget}</span>
+                    ${tokens}
+                  </div>
+                  ${interests ? `<p class="text-xs text-zinc-500 mt-1">${esc(interests)}</p>` : ''}
+                  <p class="text-[10px] text-zinc-600 mt-1">${t.id}</p>
+                </div>
+                <a href="/trips/${t.id}/html" target="_blank" onclick="event.stopPropagation()"
+                   class="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition">
+                  Open →
+                </a>
+              </div>
+            </div>`;
+          }).join('');
+        } catch {
+          list.innerHTML = '<p class="text-xs text-red-400 text-center py-8">Failed to load trips.</p>';
         }
       }
 
-      function syncAdminLayoutOnResize() {
-        syncViewportHeight();
-        toggleAdminView(state.adminOpen);
+      window.openTrip = function(id) {
+        window.open(`/trips/${id}/html`, '_blank');
+      };
+
+      $('refreshTrips').addEventListener('click', loadTrips);
+
+      // ── admin panel ───────────────────────────────────────────────────────
+      function toggleAdmin(forceOpen = null) {
+        const open = forceOpen !== null ? forceOpen : !state.adminOpen;
+        state.adminOpen = open;
+        if (window.matchMedia('(min-width: 1280px)').matches) {
+          adminPanel.classList.toggle('hidden', !open);
+          adminPanel.classList.toggle('flex', open);
+          $('chatMain').classList.toggle('admin-open', open);
+        } else {
+          adminModal.classList.toggle('hidden', !open);
+        }
       }
 
-      function syncViewportHeight() {
-        document.documentElement.style.setProperty("--app-height", `${window.innerHeight}px`);
+      adminToggle.addEventListener('click', () => toggleAdmin());
+      $('adminCloseDesktop').addEventListener('click', () => toggleAdmin(false));
+      $('adminCloseMobile').addEventListener('click', () => toggleAdmin(false));
+
+      // ── keyboard shortcuts ────────────────────────────────────────────────
+      messageInput.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          chatForm.dispatchEvent(new Event('submit'));
+        }
+      });
+
+      // ── model status ──────────────────────────────────────────────────────
+      async function checkModelStatus() {
+        try {
+          const res = await fetch('/health');
+          const data = await res.json();
+          const dot = $('modelDot'), label = $('modelLabel'), el = $('modelStatus');
+          el.classList.remove('hidden');
+          dot.className = `h-1.5 w-1.5 rounded-full ${data.model_active ? 'bg-emerald-400' : 'bg-red-400'}`;
+          label.textContent = `${data.provider} · ${data.model}`;
+        } catch {}
       }
 
-      adminToggle.addEventListener("click", () => toggleAdminView());
-      document.getElementById("adminCloseDesktop").addEventListener("click", () => toggleAdminView(false));
-      adminCloseMobile.addEventListener("click", () => toggleAdminView(false));
-      chatForm.addEventListener("submit", sendMessage);
-      messageInput.addEventListener("input", autoGrowTextarea);
-      window.addEventListener("resize", syncAdminLayoutOnResize);
-
-      if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/service-worker.js").catch(() => {});
-        });
+      // ── viewport height ───────────────────────────────────────────────────
+      function syncVH() {
+        document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
       }
+      window.addEventListener('resize', () => { syncVH(); toggleAdmin(state.adminOpen); });
 
-      renderAgents();
+      // ── init ──────────────────────────────────────────────────────────────
+      chatForm.addEventListener('submit', sendMessage);
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => navigator.serviceWorker.register('/service-worker.js').catch(() => {}));
+      }
+      syncVH();
+      connectSocket();
+      checkModelStatus();
+      renderAgents([]);
       renderLogs();
       renderDebug();
-      connectSocket();
-      autoGrowTextarea();
-      syncViewportHeight();
-      syncAdminLayoutOnResize();
     </script>
   </body>
 </html>
