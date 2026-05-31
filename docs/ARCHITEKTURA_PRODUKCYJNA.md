@@ -1,6 +1,6 @@
 # TravelMate — Architektura Produkcyjna
 
-> Dokument opisuje docelową architekturę produkcyjną systemu TravelMate AI dla skali ~1000 zapytań/dzień z możliwością skalowania do 10 000+. Wersja: 1.0 | Data: 2026-05-24
+> Dokument opisuje ewolucję systemu TravelMate AI — od obecnego POC do docelowej architektury produkcyjnej dla skali ~1000 zapytań/dzień z możliwością skalowania do 10 000+. Wersja: 1.1 | Data: 2026-05-24
 
 ---
 
@@ -23,9 +23,190 @@
 | Latency P95 (cache miss, złożony) | < 45s |
 | Security — prompt injection blocked | > 99.9% |
 
+> **Uwaga dot. latency**: Wartości P95 są szacunkami inżynierskimi opartymi na znanych benchmarkach API providerów (Gemini Flash ~2-4s/call, Claude Sonnet ~4-8s/call, Claude Opus ~8-15s/call) oraz rozmiarach promptów zmierzonych w POC (~87-119 tokenów input, ~3200-5300 tokenów output per run). Docelowo zostaną zastąpione pomiarami z produkcji.
+
 ---
 
-## 2. Architektura wysokiego poziomu
+## 2. Stan obecny — POC (Proof of Concept)
+
+### 2.1 Architektura POC
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    WARSTWA KLIENTA (POC)                    │
+│         Web App (Vanilla JS + Tailwind CSS)                 │
+│         FastAPI WebSocket — logi i statusy na żywo          │
+└─────────────────────────────┬───────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              BACKEND (FastAPI + LangGraph)                  │
+│              Lokalny serwer, port 8000                      │
+│              Brak auth, brak rate limiting                  │
+└─────────────────────────────┬───────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   AI PIPELINE (LangGraph)                   │
+│                                                             │
+│  START                                                      │
+│    ├──▶ profile_agent ──────────────────────┐              │
+│    └──▶ transport_agent ────────────────────┤ (równolegle) │
+│                                             ▼              │
+│                                         fan_in             │
+│                                             │              │
+│                                             ▼              │
+│                                         geo_agent          │
+│                                             │              │
+│                                             ▼              │
+│                                      itinerary_agent       │
+│                                             │              │
+│                                             ▼              │
+│                                     verification_agent     │
+│                                             │              │
+│                                             ▼              │
+│                                      formatter_agent       │
+│                                             │              │
+│                                           END              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 2.2 Agenci POC — szczegółowy opis
+
+#### profile_agent (Krok 1)
+**Cel**: Buduje profil podróżnika na podstawie parametrów wejściowych.
+
+**Wejście**: `ItineraryInput` (destination, days, budget, pace, interests, constraints)
+**Wyjście**: `profile_markdown` + `profile_summary` — tekstowy opis archetypu podróżnika, analiza grupy, parametry techniczne, key drivers, red flags
+
+**Prompt**: System prompt definiuje rolę "Travel Profile Analyst". Task prompt formatuje parametry wejściowe. Human message zawiera JSON payload z requestem.
+
+**Dane z POC** (Gemini 2.5 Flash, ~7 runów):
+- Input: ~87-119 tokenów (request JSON)
+- Output: ~400-800 tokenów (profil podróżnika)
+- Typowy czas: ~2-4s
+
+---
+
+#### transport_agent (Krok 1 — równolegle z profile_agent)
+**Cel**: Przygotowuje raport transportowy "dom → cel → dom" z 4 opcjami (loty, kolej, wynajem auta, auto własne).
+
+**Wejście**: `ItineraryInput` + `profile_summary` + `baggage_summary`
+**Wyjście**: `transport_markdown` + `transport_report` — szczegółowy raport z opcjami, kosztami, dopasowaniem bagażu
+
+**Specjalność**: Obsługuje brak `home_location` przez fallback z "Wymaga doprecyzowania". Ma własny fallback gdy model zwróci błąd (np. przekroczenie kontekstu).
+
+**Dane z POC**:
+- Input: ~200-400 tokenów (request + profil + bagaż)
+- Output: ~500-1000 tokenów (raport transportowy)
+- Typowy czas: ~3-6s
+
+---
+
+#### geo_agent (Krok 2)
+**Cel**: Układa plan strefami geograficznymi (Geo-Clustering) i wzbogaca każde miejsce danymi HERE Maps.
+
+**Wejście**: `ItineraryInput` + `profile_summary` + opcjonalny `here_context`
+**Wyjście**: `GeoOutput` — dla każdego dnia: morning_zone, afternoon_zone, evening_zone z pełnymi danymi (lat/lng, adres, website, TripAdvisor rating/photo)
+
+**Integracje zewnętrzne**:
+- HERE Maps Geocoding API — współrzędne i adresy
+- HERE Maps Discover API — POI lookup
+- TripAdvisor Content API — zdjęcia, oceny, linki
+
+**Dane z POC**:
+- Input: ~300-600 tokenów (request + profil + HERE context)
+- Output: ~600-1200 tokenów (geo plan)
+- Typowy czas: ~4-8s (+ czas API HERE/TripAdvisor)
+
+---
+
+#### itinerary_agent (Krok 3)
+**Cel**: Generuje szczegółowy plan atrakcji i gastronomii na podstawie geo clustrów.
+
+**Wejście**: Kompaktowy `geo_output` + `profile_summary` + `lodging_preferences`
+**Wyjście**: `ItineraryDraft` — dla każdego dnia: morning_activities, lunch, afternoon_activities, dinner, lodging
+
+**Specjalność**:
+- Respektuje `hard_requirements` (np. dostępność dla wózków, pet-friendly)
+- Ma fallback gdy model przekroczy kontekst — generuje plan z geo danych bez LLM
+- Używa kompaktowego formatu JSON (separators=(",",":")) dla oszczędności tokenów
+
+**Dane z POC**:
+- Input: ~800-1500 tokenów (kompaktowy geo + profil)
+- Output: ~1500-3000 tokenów (szkic planu)
+- Typowy czas: ~6-12s (największy agent)
+
+---
+
+#### verification_agent (Krok 4)
+**Cel**: Sprawdza potencjalne ryzyka w planie (godziny otwarcia, budżet, logistyka).
+
+**Wejście**: Kompaktowy `itinerary_draft` + `geo_output` + `profile_summary`
+**Wyjście**: `VerificationOutput` — lista `opening_hours_warnings` i `adjustments`
+
+**Specjalność**: Ma fallback przy przekroczeniu kontekstu — zwraca generyczne ostrzeżenie zamiast crashować.
+
+**Dane z POC**:
+- Input: ~600-1200 tokenów
+- Output: ~200-500 tokenów (lista ostrzeżeń)
+- Typowy czas: ~3-6s
+
+---
+
+#### formatter_agent (Krok 5)
+**Cel**: Składa wszystkie wyniki do finalnego formatu Markdown + weryfikuje spójność.
+
+**Wejście**: Wszystkie poprzednie outputy (skrócone) + `baseline_markdown` (deterministyczny fallback)
+**Wyjście**: `final_markdown` — kompletny plan podróży gotowy do wyświetlenia
+
+**Specjalność**:
+- Generuje `baseline_markdown` deterministycznie (bez LLM) jako fallback
+- Sprawdza spójność outputu (destination match, days count)
+- Dodaje sekcję POI z danymi HERE/TripAdvisor
+- Jeśli LLM zwróci niespójny output — używa baseline
+
+**Dane z POC**:
+- Input: ~1500-2500 tokenów (wszystkie skrócone outputy)
+- Output: ~2000-4000 tokenów (finalny plan)
+- Typowy czas: ~5-10s
+
+---
+
+### 2.3 Dane wejściowe i wyjściowe POC
+
+Na podstawie 7 rzeczywistych runów (Gemini 2.5 Flash):
+
+| Run | Destynacja | Dni | request.json | itinerary.md | Ratio out/in |
+|---|---|---|---|---|---|
+| praga_4d | Praga | 4 | 349 znaków (~87 tok) | 16 486 znaków (~4 121 tok) | 47x |
+| warsaw_5d | Warszawa | 5 | 479 znaków (~119 tok) | 21 063 znaków (~5 265 tok) | 44x |
+| gry-stoowe_5d | Góry Stołowe | 5 | 365 znaków (~91 tok) | 16 971 znaków (~4 242 tok) | 47x |
+| gry-stoowe-czechy_5d | Góry Stołowe+Czechy | 5 | 413 znaków (~103 tok) | 20 328 znaków (~5 082 tok) | 49x |
+| zalew-zegrzyski_3d | Zalew Zegrzyński | 3 | 348 znaków (~87 tok) | 13 057 znaków (~3 264 tok) | 38x |
+| krakow_3d | Kraków | 3 | 272 znaków (~68 tok) | 14 388 znaków (~3 597 tok) | 53x |
+| serock_3d | Serock | 3 | 322 znaków (~80 tok) | 13 618 znaków (~3 404 tok) | 43x |
+
+**Wnioski**:
+- Średni output/input ratio: **46x** — model generuje ~46 razy więcej tokenów niż dostaje w request
+- Finalny plan: ~3 200–5 300 tokenów output (to jest tylko końcowy formatter — łączne tokeny przez pipeline są ~3-5x wyższe)
+- Zapytania 3-dniowe: ~3 200–3 600 tokenów output
+- Zapytania 5-dniowe: ~4 200–5 300 tokenów output
+
+> **Uwaga**: Tokeny per agent nie są jeszcze zmierzone (tracker Gemini był naprawiony 2026-05-24). Powyższe dane dotyczą tylko request.json i finalnego itinerary.md. Pełne dane per agent będą dostępne po kolejnych runach.
+
+### 2.4 Ograniczenia POC
+
+| Obszar | Ograniczenie | Wpływ |
+|---|---|---|
+| Bezpieczeństwo | Brak auth, brak rate limiting, brak input validation | Krytyczny dla produkcji |
+| Cache | Brak — każde zapytanie idzie do LLM | Wysokie koszty przy skali |
+| Model routing | Jeden model dla wszystkich agentów | Nieoptymalne koszty |
+| Skalowanie | Jeden proces, brak load balancing | Max ~10 concurrent users |
+| Monitoring | Tylko logi lokalne | Brak visibility w produkcji |
+| Deployment | Lokalny serwer | Niedostępny publicznie |
+
+---
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -56,9 +237,40 @@
 
 ---
 
-## 3. Nowy pipeline agentów — pełny flow
+## 3. Architektura produkcyjna — wysokiego poziomu
 
-### 3.1 Diagram przepływu
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           WARSTWA KLIENTA                               │
+│  B2C Web App (React/Next.js)    │    B2B REST API / WebSocket           │
+└─────────────────────┬───────────┴──────────────────┬────────────────────┘
+                      │                              │
+                      ▼                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        API GATEWAY (Azure API Management)               │
+│  Rate limiting · Auth (JWT/API Key) · WAF · DDoS protection · Logging  │
+└─────────────────────────────────────┬───────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     ORCHESTRATION LAYER (FastAPI)                       │
+│                    Azure Container Apps / AKS                           │
+└──────┬──────────────────────────────┬──────────────────────────────────┘
+       │                              │
+       ▼                              ▼
+┌──────────────┐            ┌─────────────────────────────────────────────┐
+│  SEMANTIC    │            │              AI PIPELINE                    │
+│  CACHE       │            │  (LangGraph Multi-Agent Orchestrator)       │
+│  PostgreSQL  │            └─────────────────────────────────────────────┘
+│  + pgvector  │
+└──────────────┘
+```
+
+---
+
+## 4. Nowy pipeline agentów — pełny flow
+
+### 4.1 Diagram przepływu (wszystkie 3 ścieżki)
 
 ```
 Zapytanie użytkownika
@@ -151,9 +363,233 @@ Zapytanie użytkownika
 
 ---
 
-## 4. Opis każdego agenta
+## 5. Opis agentów — POC vs Produkcja
 
-### Agent 0: Security Guard — Input Shield
+### 5.1 Mapa ewolucji agentów
+
+| # | Agent POC | Agent Produkcja | Zmiana |
+|---|---|---|---|
+| — | — | **Security Guard (Input)** | 🆕 Nowy |
+| — | — | **Semantic Cache Lookup** | 🆕 Nowy |
+| — | — | **Complexity Router** | 🆕 Nowy |
+| — | — | **Query Enricher** | 🆕 Nowy |
+| 1 | profile_agent | profile_agent | ✅ Bez zmian (nowy model per tier) |
+| 2 | transport_agent | transport_agent | ✅ Bez zmian (nowy model per tier) |
+| 3 | geo_agent | geo_agent | ✅ Bez zmian (nowy model per tier) |
+| 4 | itinerary_agent | itinerary_agent | ✅ Bez zmian (nowy model per tier) |
+| 5 | verification_agent | verification_agent | ✅ Bez zmian (nowy model per tier) |
+| 6 | formatter_agent | **Editorial Formatter** | 🔄 Rozbudowany |
+| — | — | **Security Guard (Output)** | 🆕 Nowy |
+| — | — | **Cache Writer** | 🆕 Nowy |
+
+**Podsumowanie**: 6 agentów POC → 12 kroków produkcja (6 oryginalnych + 6 nowych). Istniejące agenty nie wymagają przepisania — dostają tylko inny model LLM zależnie od complexity tier.
+
+---
+
+### 5.2 Agenci nowi — szczegółowy opis
+
+### 5.3 Cache hit path — trzy scenariusze
+
+Architektura obsługuje **trzy ścieżki** zależnie od wyniku cache lookup:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        CACHE DECISION ENGINE                            │
+│                                                                         │
+│  Similarity >= 0.88 + params match  →  FULL HIT    (ścieżka A)        │
+│  Similarity 0.70-0.87 OR params ≈   →  PARTIAL HIT (ścieżka B)        │
+│  Similarity < 0.70                  →  FULL MISS   (ścieżka C)        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+#### Ścieżka A — Full Cache Hit (similarity ≥ 0.88, params match)
+
+```
+Input → Security Guard → Cache Lookup → FULL HIT
+      → Security Guard (Output) → Formatter → Response
+
+Agenci LLM: 1 (tylko Formatter)
+Koszt tokenów: ~$0.001
+Latency: < 1s
+Kiedy: Identyczne lub bardzo podobne zapytanie już było w bazie
+```
+
+---
+
+#### Ścieżka B — Partial Cache Hit (similarity 0.70–0.87 LUB różnica parametrów)
+
+To jest **nowa ścieżka** — cache-augmented generation.
+
+```
+Input → Security Guard → Cache Lookup → PARTIAL HIT
+      → Cache Decomposer (co można użyć z cache?)
+      → Selective Agent Runner (tylko agenci których output jest nieaktualny)
+      → Cache Merger (złącz cache + świeże dane)
+      → Security Guard (Output) → Formatter → Response
+
+Agenci LLM: 2-4 (zależnie od różnic)
+Koszt tokenów: ~$0.01-0.03
+Latency: 5-15s
+```
+
+**Logika Cache Decomposer** — co jest "przenośne" między podobnymi zapytaniami:
+
+| Komponent | Przenośny gdy | Wymaga odświeżenia gdy |
+|---|---|---|
+| `profile_summary` | pace, budget, interests podobne | Zmiana archetypu podróżnika |
+| `transport_report` | home_location i destination identyczne | Zmiana home_location lub dat |
+| `geo_output` (strefy) | destination identyczna | Zmiana destination |
+| `geo_output` (HERE data) | destination identyczna | Zawsze aktualne (TTL 90 dni) |
+| `itinerary_draft` | days ±1, budget identyczny | Zmiana days, budget, constraints |
+| `verification` | itinerary podobny | Zawsze odświeżany (tani agent) |
+
+**Przykład konkretny**:
+
+```
+Cache: "Praga 4 dni, Mid, para, historia"     (w bazie)
+Query: "Praga 5 dni, Mid, para, historia"     (nowe zapytanie)
+
+Similarity: 0.91 → ale days różne (4 vs 5)
+
+Cache Decomposer decyduje:
+  ✅ profile_summary     → użyj z cache (profil identyczny)
+  ✅ transport_report    → użyj z cache (trasa identyczna)
+  ✅ geo_output          → użyj z cache (destination identyczna)
+  🔄 itinerary_agent    → uruchom (potrzebny dodatkowy dzień 5)
+  🔄 verification_agent → uruchom (nowy itinerary wymaga weryfikacji)
+  🔄 formatter_agent    → uruchom (zawsze)
+
+Oszczędność: 3 z 6 agentów pominięte → ~50% redukcja kosztów
+```
+
+**Drugi przykład**:
+
+```
+Cache: "Praga 4 dni, Mid, para, historia"     (w bazie)
+Query: "Praga 4 dni, Luxury, para, historia"  (nowe zapytanie)
+
+Similarity: 0.89 → ale budget różny (Mid vs Luxury)
+
+Cache Decomposer decyduje:
+  ✅ profile_summary     → użyj z cache (profil podobny, tylko budget wyższy)
+  ✅ transport_report    → użyj z cache (trasa identyczna, Luxury = business class note)
+  ✅ geo_output          → użyj z cache (destination identyczna)
+  🔄 itinerary_agent    → uruchom (Luxury = inne restauracje, hotele $$$)
+  🔄 verification_agent → uruchom
+  🔄 formatter_agent    → uruchom
+
+Oszczędność: 3 z 6 agentów pominięte → ~50% redukcja kosztów
+```
+
+---
+
+#### Ścieżka C — Full Cache Miss (similarity < 0.70)
+
+```
+Input → Security Guard → Cache Lookup → FULL MISS
+      → Complexity Router → Query Enricher
+      → profile_agent + transport_agent (równolegle)
+      → geo_agent → itinerary_agent → verification_agent
+      → Security Guard (Output) → Formatter
+      → Cache Writer (zapisz do bazy)
+
+Agenci LLM: 6-8 (pełny pipeline)
+Koszt tokenów: ~$0.02-0.35 (zależnie od complexity tier)
+Latency: 15-45s
+```
+
+---
+
+### 5.4 Porównanie trzech ścieżek
+
+| | Ścieżka A (Full Hit) | Ścieżka B (Partial Hit) | Ścieżka C (Full Miss) |
+|---|---|---|---|
+| Similarity | ≥ 0.88 + params match | 0.70–0.87 lub params ≈ | < 0.70 |
+| Agenci LLM | 1 | 2–4 | 6–8 |
+| Koszt | ~$0.001 | ~$0.01–0.03 | ~$0.02–0.35 |
+| Latency | < 1s | 5–15s | 15–45s |
+| Jakość | Cache (może być stara) | Cache + świeże | W pełni świeże |
+| Zapis do cache | Nie (już jest) | Tak (nowy wpis) | Tak (nowy wpis) |
+
+**Szacowany rozkład przy dojrzałym systemie (>10K wpisów w cache)**:
+- Ścieżka A: ~35% zapytań
+- Ścieżka B: ~25% zapytań
+- Ścieżka C: ~40% zapytań
+
+**Efektywna redukcja kosztów LLM**: ~55% vs brak cache
+
+---
+
+### 5.5 Cache Decomposer — implementacja
+
+```python
+@dataclass
+class CacheDecompositionResult:
+    """Wynik analizy co można użyć z cache, a co wymaga odświeżenia."""
+    cached_components: dict[str, Any]   # gotowe do użycia z cache
+    agents_to_run: list[str]            # agenci do uruchomienia
+    reason: str                         # opis dlaczego taka decyzja
+
+def decompose_cache_hit(
+    cached_entry: CacheEntry,
+    new_request: ItineraryInput,
+    similarity: float,
+) -> CacheDecompositionResult:
+    """
+    Analizuje różnice między cached request a nowym requestem
+    i decyduje które komponenty można reużyć.
+    """
+    cached_req = cached_entry.request_params
+    agents_to_run = []
+    cached_components = {}
+
+    # Profile — reużyj jeśli pace, budget, interests podobne
+    if (cached_req["pace"] == new_request.pace.value and
+        set(cached_req["interests"]) == set(new_request.interests)):
+        cached_components["profile_summary"] = cached_entry.profile_summary
+    else:
+        agents_to_run.append("profile_agent")
+
+    # Transport — reużyj jeśli trasa identyczna
+    if (cached_req.get("home_location") == new_request.home_location and
+        cached_req["destination"] == new_request.destination):
+        cached_components["transport_report"] = cached_entry.transport_report
+    else:
+        agents_to_run.append("transport_agent")
+
+    # Geo — reużyj jeśli destination identyczna (HERE data ma własny TTL)
+    if cached_req["destination"] == new_request.destination:
+        cached_components["geo_output"] = cached_entry.geo_output
+    else:
+        agents_to_run.append("geo_agent")
+
+    # Itinerary — uruchom jeśli days, budget lub constraints się zmieniły
+    days_diff = abs(cached_req["days"] - new_request.days)
+    budget_changed = cached_req["budget"] != new_request.budget.value
+    constraints_changed = set(cached_req.get("constraints", [])) != set(new_request.constraints)
+
+    if days_diff > 1 or budget_changed or constraints_changed:
+        agents_to_run.append("itinerary_agent")
+    else:
+        cached_components["itinerary_draft"] = cached_entry.itinerary_draft
+
+    # Verification — zawsze uruchom jeśli itinerary się zmieniło
+    if "itinerary_agent" in agents_to_run:
+        agents_to_run.append("verification_agent")
+
+    # Formatter — zawsze uruchom (tani, zapewnia spójność)
+    agents_to_run.append("formatter_agent")
+
+    return CacheDecompositionResult(
+        cached_components=cached_components,
+        agents_to_run=agents_to_run,
+        reason=f"similarity={similarity:.2f}, days_diff={days_diff}, budget_changed={budget_changed}",
+    )
+```
+
+---
 
 **Cel**: Pierwsza linia obrony. Blokuje złośliwe zapytania zanim dotrą do pipeline'u.
 
