@@ -1,118 +1,130 @@
 # Dokumentacja techniczna — TravelMate AI
 
+> Dokument opisuje aktualną implementację POC. Architektura produkcyjna opisana jest w `ARCHITEKTURA_PRODUKCYJNA.md` i `IMPLEMENTACJA_TECHNICZNA.md`.
+
 ## 1. Przegląd systemu
 
-TravelMate AI to aplikacja Python wykorzystująca sekwencyjny workflow agentowy oparty o LangGraph. 
+TravelMate AI to aplikacja Python wykorzystująca multi-agent workflow oparty o LangGraph.
 
 Tryby uruchomienia:
-
-- CLI: `python -m travelmate.cli --input sample_input.json`
-- GUI webowe (Tailwind + FastAPI): `python -m travelmate.api.main`
+- **GUI webowe** (rekomendowane): `python3 -m travelmate.api.main` → `http://127.0.0.1:8000`
+- **CLI**: `python3 -m travelmate.cli --input sample_input.json`
 
 ## 2. Architektura logiczna
 
 ### 2.1 Warstwy
 
-- `travelmate/web/` — frontend interfejsu użytkownika (Tailwind + PWA).
-- `travelmate/api/` — backend interfejsu użytkownika (FastAPI + WebSocket).
-- `travelmate/services/` — logika aplikacyjna (orchestracja parse → plan → zapis).
-- `travelmate/agents/` — moduły odpowiedzialne za kolejne etapy planowania.
-- `travelmate/prompts/` — prompty systemowe i zadaniowe per agent.
-- `travelmate/tools/` — narzędzia wspólne (config, model factory, parser, logging).
-- `travelmate/models.py` — kontrakty danych i typy stanu.
+- `travelmate/web/` — frontend (Tailwind CSS + PWA, dark/light mode, My Trips tab)
+- `travelmate/api/` — backend (FastAPI + WebSocket streaming)
+- `travelmate/services/` — logika aplikacyjna (parse → plan → zapis → dashboard push)
+- `travelmate/agents/` — 6 agentów pipeline'u
+- `travelmate/prompts/` — prompty systemowe i zadaniowe per agent
+- `travelmate/tools/` — narzędzia wspólne
+- `travelmate/models.py` — kontrakty danych i typy stanu
+- `ai-cost-cache-dashboard/` — osobna aplikacja analityczna (React + FastAPI)
 
-### 2.2 Graf przetwarzania (LangGraph)
+### 2.2 Graf przetwarzania (LangGraph) — aktualny
 
-Sekwencja:
+```
+START
+  ├──► profile_agent   ┐ (równolegle)
+  └──► transport_agent ┘
+           │
+         fan_in
+           │
+       geo_agent
+           │
+    itinerary_agent
+           │
+   verification_agent
+           │
+     formatter_agent
+           │
+          END
+```
 
-`START -> profile_agent -> geo_agent -> itinerary_agent -> verification_agent -> formatter_agent -> END`
+`profile_agent` i `transport_agent` działają równolegle — oszczędność ~2-4s per run.
 
 ## 3. Komponenty i odpowiedzialności
 
 ### 3.1 `PlannerService` (`travelmate/services/planner_service.py`)
 
-- wejście: tekst użytkownika,
-- wykonanie parsowania wejścia,
-- uruchomienie grafu agentów,
-- zapis wyników (`output/*`),
-- zwrot obiektu `PlannerRunResult`.
+- Parsuje wejście użytkownika (JSON / key-value / język naturalny via LLM)
+- Resetuje `token_tracker` przed każdym runem
+- Uruchamia graf agentów
+- Zbiera `token_usage` po zakończeniu pipeline'u
+- Zapisuje wyniki do `output/{run_id}/` (html, md, json, token_usage.json)
+- Asynchronicznie pushuje run do AI Cost & Cache Dashboard (fire-and-forget)
 
 ### 3.2 Parser wejścia (`travelmate/tools/input_parser.py`)
 
 Obsługiwane formaty:
+1. JSON (wykrywany przez `{` na początku)
+2. `key: value` (heurystyka — min. 4 pary, 80% linii)
+3. Język naturalny (NLP parser via LLM z `with_structured_output`)
 
-1. JSON,
-2. `key: value`,
-3. język naturalny (NLP parser via LLM).
-
-Parser zawiera:
-
-- heurystykę wykrywania formatu,
-- fallback do NLP parsera,
-- domyślne wartości (`days=3`, `budget=Mid`, `pace=Moderate`) i listę założeń.
+Domyślne wartości przy brakujących polach: `days=3`, `budget=Mid`, `pace=Moderate`, `participants=1`.
 
 ### 3.3 Agenci
 
-- `profile_agent` — profil podróżnika,
-- `geo_agent` — strategia geograficzna i podział dni, wzbogacony danymi HERE per miejsce,
-- `itinerary_agent` — draft planu (aktywności + posiłki),
-- `verification_agent` — ostrzeżenia i poprawki,
-- `formatter_agent` — finalny markdown.
+| Agent | Krok | Wejście | Wyjście |
+|---|---|---|---|
+| `profile_agent` | 1 (równolegle) | ItineraryInput | profile_summary |
+| `transport_agent` | 1 (równolegle) | ItineraryInput + profile | transport_report |
+| `geo_agent` | 2 | request + profile + HERE context | GeoOutput (z HERE + TripAdvisor) |
+| `itinerary_agent` | 3 | compact_geo + profile | ItineraryDraft |
+| `verification_agent` | 4 | itinerary + geo + request | VerificationOutput |
+| `formatter_agent` | 5 | wszystkie outputy | final_markdown |
 
-Każdy agent używa strukturalnego outputu (`with_structured_output`) tam, gdzie to potrzebne.
+Każdy agent po `llm.invoke()` wywołuje `get_tracker().record(agent_name, response, elapsed_seconds)`.
 
-`geo_agent` działa dwuetapowo:
+### 3.4 Token Tracker (`travelmate/tools/token_tracker.py`)
 
-1. LLM tworzy `GeoOutputDraft` (nazwy miejsc),
-2. warstwa HERE (`travelmate/tools/here_maps.py`) rozwiązuje szczegóły każdego miejsca i buduje finalny `GeoOutput`.
+Thread-safe singleton. Obsługuje formaty usage_metadata dla:
+- OpenAI (`token_usage.prompt_tokens` / `completion_tokens`)
+- Anthropic (`usage.input_tokens` / `output_tokens`)
+- Google Gemini (`usageMetadata.promptTokenCount` / `candidatesTokenCount`)
 
-### 3.4 Model factory (`travelmate/tools/model_factory.py`)
+Zapisuje per agent: `input_tokens`, `output_tokens`, `total_tokens`, `elapsed_seconds`.
 
-Obsługiwani providerzy:
+### 3.5 Model factory (`travelmate/tools/model_factory.py`)
 
-- OpenAI,
-- Anthropic,
-- Google,
-- LM Studio.
+`get_chat_model(model_id=None)`:
+- Bez `model_id` — używa domyślnego z `.env`
+- Z `model_id` — inicjalizuje konkretny model (przygotowane pod dynamiczny routing)
 
-`get_model_runtime_status()` zwraca: provider, model, flagę aktywności i diagnostykę.
+`get_model_runtime_status()` — zwraca provider, model, flagę aktywności, diagnostykę.
+
+### 3.6 Dashboard Push (`travelmate/tools/dashboard_push.py`)
+
+Po każdym zakończonym runie wysyła POST do `http://localhost:8001/api/runs/notify` z:
+- `run_id`, `request_json`, `itinerary_md`, `token_usage`
+
+Działa w tle (daemon thread) — nie blokuje odpowiedzi użytkownika. Jeśli dashboard nie działa — błąd jest logowany na poziomie DEBUG i ignorowany.
 
 ## 4. Modele danych
 
 Kluczowe kontrakty (`travelmate/models.py`):
 
-- `ItineraryInput` — wejście biznesowe,
-- `GeoOutput` — wynik warstwy geograficznej,
-- `GeoPlace`/`GeoAddress`/`GeoCoordinates` — szczegóły miejsca (adres i współrzędne),
-- `ItineraryDraft` — strukturalny plan,
-- `VerificationOutput` — ostrzeżenia i korekty,
-- `PlannerState` — stan przekazywany między węzłami.
+- `ItineraryInput` — wejście biznesowe (destination, days, budget, pace, interests, constraints...)
+- `GeoOutput` — wynik warstwy geograficznej (mobility_strategy + days z morning/afternoon/evening zone)
+- `GeoPlace` — szczegóły miejsca (name, coordinates, address, website, tripadvisor_*)
+- `ItineraryDraft` — strukturalny plan (days z activities, meals, lodging)
+- `VerificationOutput` — ostrzeżenia i korekty
+- `PlannerState` — TypedDict z wszystkimi polami stanu LangGraph
 
-### 4.1 Struktura GeoOutput (po enrichment HERE)
+## 5. API Endpoints
 
-Dla każdego dnia pola `morning_zone`, `afternoon_zone`, `evening_zone` mają strukturę:
-
-- `name`
-- `coordinates.lat`, `coordinates.lng`
-- `address.country`, `address.city`, `address.postcode`, `address.street`, `address.building_number`
-- `website`
-- `source` (`here` albo `unresolved`)
-
-## 5. Logowanie i obserwowalność
-
-### 5.1 Namespace i format
-
-Logi aplikacyjne są emitowane w namespace `travelmate.*`.
-
-Format prezentacji:
-
-`[agent_name] YYYY-MM-DD HH:MM:SS LEVEL: komunikat`
-
-### 5.2 Zasady
-
-- logujemy kroki i wyniki (outputy),
-- nie logujemy pełnych promptów/payloadów,
-- UI wyświetla tylko logi aplikacyjne (bez szumu z bibliotek).
+| Endpoint | Metoda | Opis |
+|---|---|---|
+| `/` | GET | Główny interfejs webowy |
+| `/health` | GET | Status: provider, model, active, message |
+| `/chat` | POST | Wysłanie zapytania, uruchomienie pipeline'u |
+| `/admin/logs` | WebSocket | Streaming logów i statusów agentów |
+| `/trips` | GET | Lista wszystkich runów z `output/` |
+| `/trips/{id}/html` | GET | Serwowanie wygenerowanego HTML |
+| `/manifest.json` | GET | PWA manifest |
+| `/service-worker.js` | GET | PWA service worker |
 
 ## 6. Interfejs użytkownika
 
@@ -121,70 +133,77 @@ Format prezentacji:
 Pliki: `travelmate/web/index.html`, `travelmate/api/main.py`
 
 Funkcje:
+- **Chat tab** — chatowy interfejs, quick suggestions, Ctrl+Enter, typing indicator, progress bar z agentami
+- **My Trips tab** — lista wszystkich wygenerowanych planów, otwieranie jednym kliknięciem
+- **Admin View** — statusy agentów (IDLE/PROCESSING/DONE/ERROR), log stream, debug JSON
+- **Dark/Light mode** — toggle z zapisem w localStorage
+- **Model status** — provider i model w headerze
+- **"Open Interactive Plan"** — przycisk po wygenerowaniu planu
+- **"Copy Markdown"** — kopiowanie do schowka
+- **PWA** — manifest + service worker, instalacja jako aplikacja
 
-- chatowy interfejs planowania,
-- status agentów (`IDLE`/`PROCESSING`/`DONE`/`ERROR`) aktualizowany w czasie rzeczywistym,
-- panel `Admin_View` z logami i eventami debug,
-- PWA (manifest + service worker),
-- generacja i linkowanie do artefaktów `output/*/itinerary.html`.
+### 6.2 AI Cost & Cache Dashboard
+
+Osobna aplikacja w `ai-cost-cache-dashboard/`:
+- Frontend: React + Vite + Tailwind + shadcn/ui (port 5173)
+- Backend: FastAPI (port 8001)
+- Token Cost Comparison — 8 modeli LLM
+- Semantic Cache Showcase — hit/miss visualization
+- Auto-push z TravelMate po każdym runie
+- Manual load z `output/` folder
 
 ## 7. Konfiguracja środowiska
 
 Źródło: `.env` + `travelmate/tools/config.py`
 
 Kluczowe zmienne:
-
-- `MODEL_PROVIDER` = `openai|anthropic|google|lmstudio`
-- `MODEL_TEMPERATURE`
-- `OPENAI_API_KEY`, `OPENAI_MODEL`
-- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
-- `GOOGLE_API_KEY`, `GOOGLE_MODEL`
-- `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL`, `LMSTUDIO_API_KEY`
-- `HERE_API_KEY`, `HERE_BASE_URL`
+```
+MODEL_PROVIDER=openai|anthropic|google|lmstudio
+MODEL_TEMPERATURE=0.3
+OPENAI_API_KEY, OPENAI_MODEL
+ANTHROPIC_API_KEY, ANTHROPIC_MODEL
+GOOGLE_API_KEY, GOOGLE_MODEL
+LMSTUDIO_BASE_URL, LMSTUDIO_MODEL, LMSTUDIO_API_KEY
+HERE_API_KEY, HERE_GEOCODE_BASE_URL, HERE_SEARCH_BASE_URL
+TRIPADVISOR_API_KEY, TRIPADVISOR_BASE_URL
+```
 
 ## 8. Artefakty wyjściowe
 
-Każde uruchomienie zapisuje:
+Każde uruchomienie zapisuje w `output/{timestamp}_{destination}_{days}d/`:
 
-- `itinerary.html`
-- `itinerary.md`
-- `request.json`
-
-w dedykowanym katalogu w `output/`.
+| Plik | Zawartość |
+|---|---|
+| `itinerary.html` | Interaktywny plan z mapą Leaflet, dark/light mode |
+| `itinerary.md` | Plan w Markdown |
+| `request.json` | Parametry zapytania |
+| `token_usage.json` | Tokeny i czas per agent |
 
 ## 9. Obsługa błędów
 
-- Brak/niepoprawny klucz API -> `ModelConfigurationError`.
-- Niepoprawne wejście użytkownika -> `ValueError` z komunikatem użytkowym.
-- Błędy wykonania pipeline -> logowane w UI + komunikat dla użytkownika.
+- Brak/niepoprawny klucz API → `ModelConfigurationError`
+- Niepoprawne wejście → `ValueError` z komunikatem użytkowym
+- Przekroczenie kontekstu modelu → fallback (itinerary_agent, verification_agent mają własne fallbacki)
+- Błąd HERE API → `source="unresolved"`, plan kontynuuje bez danych mapowych
+- Błąd dashboard push → logowane DEBUG, ignorowane
 
-Dla HERE:
+## 10. Bezpieczeństwo (POC)
 
-- brak klucza `HERE_API_KEY` lub błąd sieci nie przerywa pipeline,
-- `geo_agent` zwraca fallback `source="unresolved"` i puste pola szczegółowe dla nierozwiązanych miejsc.
+- Sekrety w `.env` (nie commitować)
+- Brak auth i rate limiting (POC — do dodania w produkcji)
+- Brak input validation pod kątem prompt injection (do dodania w produkcji — Security Guards)
+- Szczegóły w `ARCHITEKTURA_PRODUKCYJNA.md` sekcja "Architektura bezpieczeństwa"
 
-## 10. Bezpieczeństwo i prywatność
+## 11. Testowanie
 
-- Sekrety trzymane wyłącznie w `.env` (nie commitować kluczy),
-- brak trwałej persystencji danych użytkowników poza lokalnym `output/`,
-- rekomendacja: dodać maskowanie danych wrażliwych w logach przy wdrożeniach produkcyjnych.
+```bash
+python3 -m pytest tests/ -v
+```
 
-## 11. Operacje i utrzymanie
+23 testy jednostkowe pokrywające: formatter_agent, input_parser, itinerary_agent, llm_content, markdown_contract, markdown_formatter, output_writer, transport_agent.
 
-### 11.1 Minimalny smoke test po zmianach
-
-1. `python -m travelmate.cli --input sample_input.json`
-2. `python -m travelmate.api.main`
-3. sprawdzenie logów i zapisu plików w `output/`.
-
-### 11.2 Weryfikacja składni
-
-`python -m compileall travelmate`
-
-## 12. Proponowane rozszerzenia techniczne
-
-- testy automatyczne (`pytest`) dla parsera i serwisu,
-- testy integracyjne workflow agentów,
-- warstwa API (FastAPI),
-- cache wyników dla podobnych zapytań,
-- integracja z realnymi źródłami danych POI i godzin otwarcia.
+Smoke test po zmianach:
+1. `python3 -m pytest tests/ -v` — wszystkie testy zielone
+2. `python3 -m travelmate.api.main` — serwer startuje
+3. Wyślij zapytanie przez UI — plan generuje się
+4. Sprawdź `output/{run_id}/token_usage.json`
