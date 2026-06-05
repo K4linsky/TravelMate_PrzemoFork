@@ -21,6 +21,9 @@ build/
 # Env files
 .env
 
+# Local secrets (never commit)
+docs/API_KEYS_LOCAL.md
+
 # IDE
 .vscode/
 .idea/
